@@ -4,6 +4,7 @@ import { callNative } from './native';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // Matches ArcMD clipper.MaxAssetBytes
 const MAX_IMAGES_PER_CLIP = 60;
 const CONCURRENCY = 4;
+export const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 10_000;
 
 export interface LocalizeAssetsResult {
   imageMap: Record<string, string>;
@@ -34,11 +35,17 @@ function guessFilename(url: string, idx: number): string {
   return `clip-image-${idx + 1}.png`;
 }
 
-async function fetchImageInServiceWorker(url: string): Promise<{ base64: string; mimeType: string } | null> {
+export async function fetchImageInServiceWorker(
+  url: string,
+  timeoutMs = DEFAULT_IMAGE_FETCH_TIMEOUT_MS,
+): Promise<{ base64: string; mimeType: string } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await fetch(url, {
       credentials: 'include',
       redirect: 'follow',
+      signal: controller.signal,
     });
     if (!resp.ok) return null;
     const mimeType = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
@@ -53,17 +60,30 @@ async function fetchImageInServiceWorker(url: string): Promise<{ base64: string;
     };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function fetchImageInTab(tabId: number, url: string): Promise<{ base64: string; mimeType: string } | null> {
+async function fetchImageInTab(
+  tabId: number,
+  url: string,
+  timeoutMs = DEFAULT_IMAGE_FETCH_TIMEOUT_MS,
+): Promise<{ base64: string; mimeType: string } | null> {
+  let outerTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const results = await chrome.scripting.executeScript({
+    const execPromise = chrome.scripting.executeScript({
       target: { tabId },
-      args: [url, MAX_IMAGE_BYTES],
-      func: async (imgUrl: string, maxBytes: number) => {
+      args: [url, MAX_IMAGE_BYTES, timeoutMs],
+      func: async (imgUrl: string, maxBytes: number, innerTimeoutMs: number) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), innerTimeoutMs);
         try {
-          const resp = await fetch(imgUrl, { credentials: 'include', mode: 'cors' });
+          const resp = await fetch(imgUrl, {
+            credentials: 'include',
+            mode: 'cors',
+            signal: controller.signal,
+          });
           if (!resp.ok) return null;
           const blob = await resp.blob();
           if (blob.size === 0 || blob.size > maxBytes) return null;
@@ -79,17 +99,28 @@ async function fetchImageInTab(tabId: number, url: string): Promise<{ base64: st
           return { base64: dataUrl.slice(comma + 1), mimeType };
         } catch {
           return null;
+        } finally {
+          clearTimeout(timer);
         }
       },
     });
+    const results = await Promise.race([
+      execPromise,
+      new Promise<null>((resolve) => {
+        outerTimer = setTimeout(() => resolve(null), timeoutMs + 2_000);
+      }),
+    ]);
     const val = results?.[0]?.result as { base64: string; mimeType: string } | null | undefined;
     return val && val.base64 ? val : null;
   } catch {
     return null;
+  } finally {
+    if (outerTimer !== undefined) clearTimeout(outerTimer);
   }
 }
 
 function broadcastProgress(stage: ExecuteClipProgress['stage'], done: number, total: number): void {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
   const msg: ExecuteClipProgress = { type: 'clip.progress', stage, done, total };
   chrome.runtime.sendMessage(msg).catch(() => {
     // Popup might have closed; ignore.
@@ -101,6 +132,7 @@ export async function localizeClipAssets(opts: {
   docDir: string;
   imageUrls: string[];
   tabId?: number;
+  timeoutMs?: number;
 }): Promise<LocalizeAssetsResult> {
   const unique = Array.from(new Set(opts.imageUrls.filter((u) => /^https?:\/\//i.test(u)))).slice(
     0,
@@ -110,6 +142,8 @@ export async function localizeClipAssets(opts: {
     return { imageMap: {}, downloaded: 0, failed: 0 };
   }
 
+  const perImageTimeoutMs = opts.timeoutMs ?? DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+  const minFallbackBudgetMs = Math.min(500, Math.floor(perImageTimeoutMs / 4));
   const imageMap: Record<string, string> = {};
   let downloaded = 0;
   let failed = 0;
@@ -122,9 +156,13 @@ export async function localizeClipAssets(opts: {
     while (cursor < unique.length) {
       const idx = cursor++;
       const url = unique[idx];
-      let fetched = await fetchImageInServiceWorker(url);
+      const deadline = Date.now() + perImageTimeoutMs;
+      let fetched = await fetchImageInServiceWorker(url, perImageTimeoutMs);
       if (!fetched && opts.tabId !== undefined) {
-        fetched = await fetchImageInTab(opts.tabId, url);
+        const remainingMs = deadline - Date.now();
+        if (remainingMs >= minFallbackBudgetMs) {
+          fetched = await fetchImageInTab(opts.tabId, url, remainingMs);
+        }
       }
       if (!fetched) {
         failed++;

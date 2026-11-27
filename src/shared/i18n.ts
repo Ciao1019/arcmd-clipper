@@ -8,6 +8,7 @@ const EN: Record<string, string> = {
   '连接中…': 'Connecting…',
   '网页高亮': 'Highlight',
   '高亮中': 'Highlighting',
+  '切换网页高亮模式': 'Toggle webpage highlight mode',
   '设置': 'Settings',
   '整篇正文': 'Article',
   '划选内容': 'Selection',

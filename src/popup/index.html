@@ -154,7 +154,7 @@
               <input id="chk-images" type="checkbox" checked />
               <span>下载图片到本地 <strong id="img-count" class="muted-num"></strong></span>
             </label>
-            <label class="toggle-chip">
+            <label class="toggle-chip" id="wrap-cover">
               <input id="chk-cover" type="checkbox" checked />
               <span>封面图</span>
             </label>
@@ -202,7 +202,7 @@
         <div id="result-banner" class="result-banner hidden"></div>
         <button id="btn-save" type="button" class="btn-primary">
           <span id="btn-save-label">保存到 ArcMD</span>
-          <kbd class="kbd">Ctrl+↵</kbd>
+          <kbd id="save-kbd" class="kbd">Ctrl+↵</kbd>
         </button>
       </footer>
     </div>

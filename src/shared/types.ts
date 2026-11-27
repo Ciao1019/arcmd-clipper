@@ -49,6 +49,7 @@ export interface ClipDatabaseContext {
   path: string;
   title: string;
   icon?: string;
+  recordsDir?: string;
   properties: ClipDatabaseProperty[];
 }
 
@@ -71,6 +72,7 @@ export interface ClipContextResult {
   protocol: number;
   live: boolean;
   activeSpaceId: string;
+  dailyDir?: string;
   aiReady: boolean;
   aiModel: string;
   spaces: ClipSpaceContext[];
@@ -230,6 +232,7 @@ export type BgRequest =
 export interface ExecuteClipPayload {
   tabId?: number;
   pageUrl: string;
+  docDir?: string;
   saveParams: ClipSaveParams;
   downloadImages: boolean;
   imageUrls: string[];

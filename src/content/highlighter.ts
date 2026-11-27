@@ -4,10 +4,10 @@ const HOST_ID = 'arcmd-clipper-host';
 const STYLE_ID = 'arcmd-clipper-hl-style';
 
 const COLORS: { id: HighlightColor; label: string; bg: string; ring: string }[] = [
-  { id: 'yellow', label: 'Yellow', bg: '#fef08a', ring: '#eab308' },
-  { id: 'green', label: 'Green', bg: '#bbf7d0', ring: '#22c55e' },
-  { id: 'blue', label: 'Blue', bg: '#bfdbfe', ring: '#3b82f6' },
-  { id: 'pink', label: 'Pink', bg: '#fbcfe8', ring: '#ec4899' },
+  { id: 'yellow', label: '明黄', bg: '#fef08a', ring: '#eab308' },
+  { id: 'green', label: '薄荷绿', bg: '#bbf7d0', ring: '#22c55e' },
+  { id: 'blue', label: '晴空蓝', bg: '#bfdbfe', ring: '#3b82f6' },
+  { id: 'pink', label: '樱花粉', bg: '#fbcfe8', ring: '#ec4899' },
 ];
 
 interface TextRun {

@@ -1,3 +1,4 @@
+import { computeClipDocDir } from '../shared/clip-assets';
 import { loadHighlights, saveHighlights } from '../shared/storage';
 import type {
   BgRequest,
@@ -94,15 +95,11 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
-function computeDocDir(saveParams: ExecuteClipPayload['saveParams']): string {
-  if (saveParams.mode === 'create') {
-    return (saveParams.dir || '').replace(/^\/+|\/+$/g, '');
+function resolvePayloadDocDir(payload: ExecuteClipPayload): string {
+  if (payload.docDir !== undefined) {
+    return payload.docDir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   }
-  if ((saveParams.mode === 'append' || saveParams.mode === 'database') && saveParams.path) {
-    const idx = saveParams.path.lastIndexOf('/');
-    return idx > 0 ? saveParams.path.slice(0, idx) : '';
-  }
-  return '';
+  return computeClipDocDir(payload.saveParams);
 }
 
 function rewriteUrlsInMarkdown(content: string, imageMap: Record<string, string>): string {
@@ -124,7 +121,7 @@ async function executeClip(payload: ExecuteClipPayload): Promise<ExecuteClipResp
     if (payload.coverUrl) allUrls.unshift(payload.coverUrl);
     const localized = await localizeClipAssets({
       space: saveParams.space,
-      docDir: computeDocDir(saveParams),
+      docDir: resolvePayloadDocDir(payload),
       imageUrls: allUrls,
       tabId: payload.tabId,
     });

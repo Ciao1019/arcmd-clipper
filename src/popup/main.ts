@@ -1,5 +1,7 @@
+import { computeClipDocDir, saveModeSupportsCover, selectClipAssetUrls } from '../shared/clip-assets';
 import { setLocale, t } from '../shared/i18n';
 import { htmlToArcMarkdown } from '../shared/markdown';
+import { formatHighlightShortcut, formatSaveShortcut, isMacPlatform } from '../shared/platform';
 import { defaultSettings, loadSettings } from '../shared/storage';
 import {
   buildVariables,
@@ -272,6 +274,25 @@ function recomputeRenderedOutputs(forceBody = false): void {
   }
 
   renderMetaPreview();
+  updateImageCountBadge();
+}
+
+function updateImageCountBadge(): void {
+  if (!state.page) {
+    byId('img-count').textContent = '';
+    return;
+  }
+  const content = byId<HTMLTextAreaElement>('txt-body').value;
+  const selected = selectClipAssetUrls({
+    content,
+    pageImages: state.page.images,
+    coverUrl: state.page.cover,
+    includeCover: state.includeCover,
+    saveMode: state.saveMode,
+  });
+  const unique = new Set(selected.imageUrls);
+  if (selected.coverUrl) unique.add(selected.coverUrl);
+  byId('img-count').textContent = unique.size > 0 ? `(${unique.size})` : '';
 }
 
 function computeFrontmatter(): Record<string, unknown> {
@@ -564,10 +585,12 @@ function updateSaveModeVisibility(): void {
   byId('dest-append').classList.toggle('hidden', state.saveMode !== 'append');
   byId('dest-database').classList.toggle('hidden', state.saveMode !== 'database');
   byId('row-title').classList.toggle('hidden', state.saveMode === 'daily' || state.saveMode === 'append');
+  byId('wrap-cover').classList.toggle('hidden', !saveModeSupportsCover(state.saveMode));
   byId('wrap-pin').classList.toggle('hidden', state.saveMode !== 'create');
   byId('wrap-fav').classList.toggle('hidden', state.saveMode !== 'create');
   byId<HTMLSelectElement>('sel-save-mode').value = state.saveMode;
   renderMetaPreview();
+  updateImageCountBadge();
 }
 
 function updateClipModeUI(): void {
@@ -726,7 +749,7 @@ async function runAI(): Promise<void> {
           url: state.page.url,
           content: state.body || state.articleMarkdown,
           mode: 'both',
-          customPrompt: currentTemplate().aiPrompt || '',
+          prompt: currentTemplate().aiPrompt || '',
         },
       });
       if (resp.ok && resp.result) {
@@ -777,10 +800,18 @@ async function handleSave(): Promise<void> {
     open: state.openAfterSave,
   };
 
+  const selectedAssets = selectClipAssetUrls({
+    content: saveParams.content,
+    pageImages: state.page.images,
+    coverUrl: state.page.cover,
+    includeCover: state.includeCover,
+    saveMode: state.saveMode,
+  });
+
   if (state.saveMode === 'create') {
     saveParams.dir = state.dir.trim();
     saveParams.frontmatter = computeFrontmatter();
-    if (state.includeCover && state.page.cover) saveParams.cover = state.page.cover;
+    if (selectedAssets.coverUrl) saveParams.cover = selectedAssets.coverUrl;
     if (state.spaceTemplate) saveParams.template = state.spaceTemplate;
     saveParams.pin = state.pin;
     saveParams.favorite = state.favorite;
@@ -792,10 +823,18 @@ async function handleSave(): Promise<void> {
   } else if (state.saveMode === 'database') {
     saveParams.path = state.databasePath;
     saveParams.fields = state.dbFieldValues;
-    if (state.includeCover && state.page.cover) saveParams.cover = state.page.cover;
+    if (selectedAssets.coverUrl) saveParams.cover = selectedAssets.coverUrl;
   }
 
-  const imageUrls = state.page.images.map((i) => i.url);
+  const imageUrls = selectedAssets.imageUrls;
+  const effectiveCoverUrl = selectedAssets.coverUrl;
+  const shouldDownloadImages = state.downloadImages && (imageUrls.length > 0 || Boolean(effectiveCoverUrl));
+  const resolvedDocDir = computeClipDocDir(saveParams, {
+    dailyDir: state.context.dailyDir,
+    databaseRecordsDir: state.saveMode === 'database' ? currentDatabase()?.recordsDir : undefined,
+  });
+
+  byId('progress-label').textContent = shouldDownloadImages ? t('正在下载图片') : t('正在保存…');
 
   try {
     let resp: ExecuteClipResponse;
@@ -804,7 +843,7 @@ async function handleSave(): Promise<void> {
       resp = {
         ok: true,
         live: true,
-        imagesDownloaded: imageUrls.length,
+        imagesDownloaded: imageUrls.length + (effectiveCoverUrl ? 1 : 0),
         imagesFailed: 0,
         result: {
           space: sp.name,
@@ -820,10 +859,11 @@ async function handleSave(): Promise<void> {
         payload: {
           tabId: state.activeTabId,
           pageUrl: state.page.url,
+          docDir: resolvedDocDir,
           saveParams,
-          downloadImages: state.downloadImages && imageUrls.length > 0,
+          downloadImages: shouldDownloadImages,
           imageUrls,
-          coverUrl: state.includeCover ? state.page.cover : undefined,
+          coverUrl: effectiveCoverUrl,
         },
       });
     }
@@ -905,9 +945,16 @@ async function loadNativeContext(): Promise<void> {
   renderAIUI();
 }
 
+function renderPlatformShortcuts(): void {
+  const mac = isMacPlatform();
+  byId('save-kbd').textContent = formatSaveShortcut(mac);
+  byId('btn-highlight').title = `${t('切换网页高亮模式')} (${formatHighlightShortcut(mac)})`;
+}
+
 async function init(): Promise<void> {
   state.settings = isExtensionEnv ? await loadSettings() : defaultSettings();
   setLocale(state.settings.language);
+  renderPlatformShortcuts();
   wireEventListeners();
 
   // Check if context menu requested selection mode
@@ -1085,6 +1132,7 @@ function wireEventListeners(): void {
   byId<HTMLInputElement>('chk-cover').addEventListener('change', (e) => {
     state.includeCover = (e.target as HTMLInputElement).checked;
     renderMetaPreview();
+    updateImageCountBadge();
   });
   byId<HTMLInputElement>('chk-open').addEventListener('change', (e) => {
     state.openAfterSave = (e.target as HTMLInputElement).checked;
@@ -1100,6 +1148,7 @@ function wireEventListeners(): void {
     state.body = (e.target as HTMLTextAreaElement).value;
     state.bodyManuallyEdited = true;
     byId('btn-reset-body').classList.remove('hidden');
+    updateImageCountBadge();
   });
 
   byId('btn-reset-body').addEventListener('click', () => {
