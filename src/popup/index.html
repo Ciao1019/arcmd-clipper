@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ArcMD Web Clipper</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <div class="brand-text">
+            <span class="brand-title">ArcMD Clipper</span>
+            <span id="conn-badge" class="conn-badge connecting">
+              <span class="conn-dot"></span>
+              <span id="conn-label">连接中…</span>
+            </span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button id="btn-highlight" type="button" class="icon-pill" title="切换网页高亮模式 (Alt+Shift+H)">
+            <span class="hl-dot"></span>
+            <span id="btn-highlight-label">网页高亮</span>
+          </button>
+          <button id="btn-options" type="button" class="icon-btn" title="设置与模板管理">⚙</button>
+        </div>
+      </header>
+
+      <main class="body">
+        <section id="host-error-card" class="notice-card error hidden">
+          <div class="notice-title" id="host-error-title">尚未检测到 ArcMD 宿主连接</div>
+          <p class="notice-desc" id="host-error-desc">
+            请在 ArcMD「设置 › AI › 浏览器剪藏」中点击「一键安装连接」，然后重试。
+          </p>
+          <div class="notice-actions">
+            <button id="btn-retry-conn" type="button" class="btn-secondary">重新检测</button>
+            <button id="btn-open-diag" type="button" class="btn-ghost">打开设置与诊断</button>
+          </div>
+        </section>
+
+        <section id="dup-banner" class="notice-card warn hidden">
+          <div class="notice-title">⚠ 该页面已剪藏过</div>
+          <div id="dup-list" class="dup-list"></div>
+        </section>
+
+        <section id="page-error-card" class="notice-card warn hidden"></section>
+
+        <div id="main-form">
+          <div class="segmented" role="tablist" aria-label="剪藏模式">
+            <button type="button" class="seg-btn active" data-clip-mode="article">整篇正文</button>
+            <button type="button" class="seg-btn" data-clip-mode="selection">划选内容</button>
+            <button type="button" class="seg-btn" data-clip-mode="bookmark">书签卡片</button>
+            <button type="button" class="seg-btn" data-clip-mode="highlights">
+              仅高亮 <span id="hl-count-pill" class="mini-count hidden">0</span>
+            </button>
+          </div>
+
+          <div class="card-section">
+            <div class="field-row">
+              <label for="sel-template">模板</label>
+              <div class="field-control inline-end">
+                <select id="sel-template"></select>
+                <span id="auto-match-badge" class="chip accent hidden">自动匹配</span>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="field-col">
+                <label for="sel-space">空间</label>
+                <select id="sel-space"></select>
+              </div>
+              <div class="field-col">
+                <label for="sel-save-mode">保存方式</label>
+                <select id="sel-save-mode">
+                  <option value="create">新建文档</option>
+                  <option value="daily">今日笔记</option>
+                  <option value="append">追加到文档</option>
+                  <option value="database">多维数据库</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Dynamic destination details -->
+            <div id="dest-create" class="grid-2">
+              <div class="field-col">
+                <label for="inp-dir">目标目录</label>
+                <input id="inp-dir" type="text" list="dir-suggestions" placeholder="根目录（留空）" />
+                <datalist id="dir-suggestions"></datalist>
+              </div>
+              <div class="field-col">
+                <label for="sel-space-template">空间模板</label>
+                <select id="sel-space-template">
+                  <option value="">不使用</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="dest-daily" class="field-row hidden">
+              <label for="sel-daily-pos">插入位置</label>
+              <select id="sel-daily-pos">
+                <option value="bottom">末尾追加</option>
+                <option value="top">顶部插入</option>
+              </select>
+            </div>
+
+            <div id="dest-append" class="grid-2 hidden">
+              <div class="field-col">
+                <label for="sel-append-doc">目标文档</label>
+                <select id="sel-append-doc"></select>
+              </div>
+              <div class="field-col">
+                <label for="sel-append-pos">插入位置</label>
+                <select id="sel-append-pos">
+                  <option value="bottom">末尾追加</option>
+                  <option value="top">顶部插入</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="dest-database" class="hidden">
+              <div class="field-row">
+                <label for="sel-database">数据库</label>
+                <select id="sel-database"></select>
+              </div>
+              <div id="db-fields-container" class="db-fields"></div>
+            </div>
+
+            <div id="row-title" class="field-col">
+              <label for="inp-title">标题</label>
+              <input id="inp-title" type="text" placeholder="文档标题" />
+            </div>
+          </div>
+
+          <div class="card-section ai-section">
+            <div class="ai-header">
+              <div class="ai-title-wrap">
+                <span class="ai-spark">✦</span>
+                <span class="ai-title">AI 摘要与标签</span>
+                <span id="ai-model-chip" class="chip subtle hidden"></span>
+              </div>
+              <button id="btn-ai" type="button" class="btn-secondary small">生成摘要</button>
+            </div>
+            <div id="ai-output" class="ai-output hidden">
+              <p id="ai-summary-text" class="ai-summary"></p>
+              <div id="ai-tags-wrap" class="tag-list"></div>
+            </div>
+            <p id="ai-hint" class="muted-hint hidden"></p>
+          </div>
+
+          <div class="card-section options-strip">
+            <label class="toggle-chip">
+              <input id="chk-images" type="checkbox" checked />
+              <span>下载图片到本地 <strong id="img-count" class="muted-num"></strong></span>
+            </label>
+            <label class="toggle-chip" id="wrap-cover">
+              <input id="chk-cover" type="checkbox" checked />
+              <span>封面图</span>
+            </label>
+            <label class="toggle-chip">
+              <input id="chk-open" type="checkbox" />
+              <span>保存后打开</span>
+            </label>
+            <label class="toggle-chip" id="wrap-pin">
+              <input id="chk-pin" type="checkbox" />
+              <span>置顶</span>
+            </label>
+            <label class="toggle-chip" id="wrap-fav">
+              <input id="chk-fav" type="checkbox" />
+              <span>收藏</span>
+            </label>
+          </div>
+
+          <div class="card-section preview-section">
+            <div class="preview-header">
+              <div class="preview-tabs">
+                <button type="button" class="tab-link active" data-preview-tab="body">正文 Markdown</button>
+                <button type="button" class="tab-link" data-preview-tab="meta">属性预览</button>
+              </div>
+              <button id="btn-reset-body" type="button" class="text-btn hidden">重新套用模板</button>
+            </div>
+            <textarea
+              id="txt-body"
+              rows="7"
+              spellcheck="false"
+              placeholder="提取的 Markdown 内容…"
+            ></textarea>
+            <pre id="pre-meta" class="meta-preview hidden"></pre>
+          </div>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <div id="progress-wrap" class="progress-wrap hidden">
+          <div class="progress-row">
+            <span id="progress-label">正在下载图片…</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+        </div>
+        <div id="result-banner" class="result-banner hidden"></div>
+        <button id="btn-save" type="button" class="btn-primary">
+          <span id="btn-save-label">保存到 ArcMD</span>
+          <kbd id="save-kbd" class="kbd">Ctrl+↵</kbd>
+        </button>
+      </footer>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
